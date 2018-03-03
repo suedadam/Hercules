@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   main.c                                             :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: asyed <asyed@student.42.fr>                +#+  +:+       +#+        */
+/*   By: asyed <asyed@student.42.us.org>            +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2018/03/01 14:00:01 by asyed             #+#    #+#             */
-/*   Updated: 2018/03/02 16:54:28 by asyed            ###   ########.fr       */
+/*   Updated: 2018/03/03 12:04:25 by asyed            ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -48,22 +48,20 @@ u_short	csum(u_short *addr, size_t len)
 	return ((unsigned short)~sum);
 }
 
-int	main(void)
+int	main(int argc, char *argv[])
 {
 	int					s_sock;
 	int					ret;
 	int					kern;
-	char				buf[1024];
 	struct icmp			*icmppacket;
 	struct ip			*ipreply;
 	struct sockaddr_in	conn;
 	void				*packet;
 	size_t				packet_size;
 
-	if ((ret = fork()) == -1)
-		return (-1);
-	else if (ret > 0)
-		return (0);
+	if (argc >= 2 && !strcmp(argv[1], "-D"))
+		if ((ret = daemon(0, 0)) == -1)
+			return (ret);
 	if ((s_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP)) == -1)
 	{
 		printf("socket(%s)\n", strerror(errno));
@@ -71,6 +69,7 @@ int	main(void)
 	}
 	if (!(packet = malloc(1024)))
 		return (-1);
+	bzero(packet, 1024);
 	ipreply = (struct ip *)packet;
 	icmppacket = (struct icmp *)(packet + sizeof(struct ip));
 	if ((ret = enabled("/proc/sys/net/ipv4/icmp_echo_ignore_all")) == -1)
@@ -84,17 +83,16 @@ int	main(void)
 		printf("setsockopt(%s)\n", strerror(errno));
 		exit(-1);
 	}
-	while (recv(s_sock, buf, 1024, 0))
+	while (recv(s_sock, packet, 1024, 0))
 	{
-		if (((struct icmp *)(buf + sizeof(struct ip)))->icmp_type == ICMP_ECHO)
+		if (((struct icmp *)(packet + sizeof(struct ip)))->icmp_type == ICMP_ECHO)
 		{
-			bzero(packet, 1024);
-			packet_size = ntohs(((struct ip *)buf)->ip_len);
-			memcpy(packet, buf, packet_size);
-			memcpy(&(ipreply->ip_src.s_addr), &(((struct ip *)buf)->ip_dst.s_addr), sizeof(uint32_t));
-			memcpy(&(ipreply->ip_dst.s_addr), &(((struct ip *)buf)->ip_src.s_addr), sizeof(uint32_t));
+			packet_size = ntohs(((struct ip *)packet)->ip_len);
+			bzero(packet + packet_size, 1024 - packet_size);
+			memcpy(&(ipreply->ip_src.s_addr), &(((struct ip *)packet)->ip_dst.s_addr), sizeof(uint32_t));
+			memcpy(&(ipreply->ip_dst.s_addr), &(((struct ip *)packet)->ip_src.s_addr), sizeof(uint32_t));
 			icmppacket->icmp_type = ICMP_ECHOREPLY;
-			icmppacket->icmp_id = ((struct icmp *)(buf + sizeof(struct ip)))->icmp_id;
+			icmppacket->icmp_id = ((struct icmp *)(packet + sizeof(struct ip)))->icmp_id;
 			icmppacket->icmp_cksum = 0;
 			icmppacket->icmp_cksum = csum((unsigned short *)icmppacket, packet_size - sizeof(struct ip));
 			ipreply->ip_sum = 0;
